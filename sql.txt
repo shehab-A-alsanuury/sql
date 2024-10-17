@@ -1,0 +1,234 @@
+-- Basic Queries:
+-- 1. List all students along with their details.
+SELECT * FROM Students;
+
+-- 2. Find the total number of courses offered by the university.
+SELECT COUNT(*) AS total_courses FROM Courses;
+
+-- 3. Show the names of all students enrolled in a specific course.
+SELECT s.first_name, s.last_name
+FROM Students s
+JOIN Enrollments e ON s.student_id = e.student_id
+JOIN Courses c ON e.course_id = c.course_id
+WHERE c.course_name = 'Introduction to Computer Science';  
+
+-- 4. Retrieve the email addresses of all instructors in a department.
+SELECT email
+FROM Instructors
+WHERE department = 'Computer Science';  -- Replace with desired department name
+
+
+-- Intermediate Queries:
+-- 5. List all courses along with the number of students enrolled.
+SELECT c.course_name, COUNT(e.student_id) AS number_of_students
+FROM Courses c
+LEFT JOIN Enrollments e ON c.course_id = e.course_id
+GROUP BY c.course_id, c.course_name;
+
+-- 6. Find the students who were enrolled in a course with a grade of 'A'.
+SELECT s.first_name, s.last_name
+FROM Students s
+JOIN Enrollments e ON s.student_id = e.student_id
+WHERE e.grade = 'A';
+
+-- 7. Retrieve the courses and the instructors assigned for a specific semester.
+SELECT c.course_name, i.first_name AS instructor_first_name, i.last_name AS instructor_last_name
+FROM Courses c
+JOIN CourseAssignments ca ON c.course_id = ca.course_id
+JOIN Instructors i ON ca.instructor_id = i.instructor_id
+WHERE ca.semester = 'Fall' AND ca.year = 2023;  -- Replace with desired semester and year
+
+-- 8. Find the average grade for a particular course.
+SELECT AVG(CASE grade
+    WHEN 'A' THEN 4.0
+    WHEN 'B' THEN 3.0
+    WHEN 'C' THEN 2.0
+    WHEN 'D' THEN 1.0
+    WHEN 'F' THEN 0.0
+    ELSE NULL
+END) AS average_grade
+FROM Enrollments
+WHERE course_id = (SELECT course_id FROM Courses WHERE course_name = 'Introduction to Computer Science'); 
+
+
+-- Advanced Queries:
+-- 9. List students taking more than 3 courses in the current semester.
+SELECT s.first_name, s.last_name
+FROM Students s
+JOIN Enrollments e ON s.student_id = e.student_id
+GROUP BY s.student_id, s.first_name, s.last_name
+HAVING COUNT(e.course_id) > 3;
+
+-- 10. Generate a report of students with incomplete grades.
+SELECT s.first_name, s.last_name
+FROM Students s
+JOIN Enrollments e ON s.student_id = e.student_id
+WHERE e.grade IS NULL;  -- Assuming NULL indicates an incomplete grade
+
+-- 11. Show the student with the highest average grade across courses.
+SELECT s.first_name, s.last_name, AVG(CASE e.grade
+    WHEN 'A' THEN 4.0
+    WHEN 'B' THEN 3.0
+    WHEN 'C' THEN 2.0
+    WHEN 'D' THEN 1.0
+    WHEN 'F' THEN 0.0
+    ELSE NULL
+END) AS average_grade
+FROM Students s
+JOIN Enrollments e ON s.student_id = e.student_id
+GROUP BY s.student_id
+ORDER BY average_grade DESC
+LIMIT 1;
+
+-- 12. Find the department with the most courses taught this year.
+SELECT department, COUNT(c.course_id) AS course_count
+FROM Courses c
+WHERE YEAR(c.created_at) = 2023  -- Replace with the desired year
+GROUP BY department
+ORDER BY course_count DESC
+LIMIT 1;
+
+-- 13. List courses with no student enrollments.
+SELECT c.course_name
+FROM Courses c
+LEFT JOIN Enrollments e ON c.course_id = e.course_id
+WHERE e.student_id IS NULL;
+
+
+-- 1. Function: Calculate a student's age based on date_of_birth
+DELIMITER $$
+
+CREATE FUNCTION calculate_age(date_of_birth DATE)
+RETURNS INT
+DETERMINISTIC
+BEGIN
+    DECLARE age INT;
+    SET age = TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE());
+    RETURN age;
+END $$
+
+DELIMITER ;
+
+-- 2. Stored Procedure: Enroll a student in a course
+DELIMITER $$
+
+CREATE PROCEDURE enroll_student(IN p_student_id INT, IN p_course_id INT, IN p_grade CHAR(2))
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM Enrollments WHERE student_id = p_student_id AND course_id = p_course_id) THEN
+        INSERT INTO Enrollments (student_id, course_id, grade)
+        VALUES (p_student_id, p_course_id, p_grade);
+    ELSE
+        UPDATE Enrollments
+        SET grade = p_grade
+        WHERE student_id = p_student_id AND course_id = p_course_id;
+    END IF;
+END $$
+
+DELIMITER ;
+
+-- 3. Query: Show average grades by department using aggregate functions
+SELECT c.department, AVG(CASE e.grade
+    WHEN 'A' THEN 4.0
+    WHEN 'B' THEN 3.0
+    WHEN 'C' THEN 2.0
+    WHEN 'D' THEN 1.0
+    WHEN 'F' THEN 0.0
+    ELSE NULL
+END) AS average_grade
+FROM Enrollments e
+JOIN Courses c ON e.course_id = c.course_id
+GROUP BY c.department;
+
+
+-- 1. Ensure unique student emails
+ALTER TABLE Students
+ADD CONSTRAINT unique_email UNIQUE (email);
+
+-- 2. Transaction to enroll a student if the course capacity isn't exceeded
+DELIMITER $$
+
+CREATE PROCEDURE enroll_student_with_capacity(IN p_student_id INT, IN p_course_id INT, IN p_grade CHAR(2))
+BEGIN
+    DECLARE enrolled_count INT;
+    DECLARE course_capacity INT;
+
+    START TRANSACTION;
+
+    SELECT COUNT(*) INTO enrolled_count
+    FROM Enrollments
+    WHERE course_id = p_course_id;
+
+    SELECT capacity INTO course_capacity
+    FROM Courses
+    WHERE course_id = p_course_id;
+
+    IF enrolled_count < course_capacity THEN
+        INSERT INTO Enrollments (student_id, course_id, grade)
+        VALUES (p_student_id, p_course_id, p_grade);
+        COMMIT;
+    ELSE
+        ROLLBACK;
+    END IF;
+
+END $$
+
+DELIMITER ;
+
+
+-- 1. Create an index on the course_code
+CREATE INDEX idx_course_code ON Courses(course_code);
+
+-- 2. Optimize query using EXPLAIN to fetch students enrolled in a course
+EXPLAIN 
+SELECT s.first_name, s.last_name 
+FROM Students s
+JOIN Enrollments e ON s.student_id = e.student_id
+WHERE e.course_id = 1;
+
+
+-- 1. Inner join to fetch students and the courses they are enrolled in
+SELECT s.first_name, s.last_name, c.course_name 
+FROM Students s
+INNER JOIN Enrollments e ON s.student_id = e.student_id
+INNER JOIN Courses c ON e.course_id = c.course_id;
+
+-- 2. Left join to show instructors and the courses they teach
+SELECT i.first_name, i.last_name, c.course_name 
+FROM Instructors i
+LEFT JOIN Course_Assignments ca ON i.instructor_id = ca.instructor_id
+LEFT JOIN Courses c ON ca.course_id = c.course_id;
+
+-- 3. Query using UNION to list all students and instructors
+SELECT first_name, last_name, 'Student' AS role 
+FROM Students
+UNION
+SELECT first_name, last_name, 'Instructor' AS role 
+FROM Instructors;
+
+-- Final Challenge: Generate a report showing each student's details, courses enrolled, instructor, grades, and total credits
+SELECT 
+    s.first_name AS student_first_name,
+    s.last_name AS student_last_name,
+    s.email,
+    s.major,
+    c.course_name,
+    CONCAT(i.first_name, ' ', i.last_name) AS instructor_name,
+    e.grade,
+    c.credits
+FROM 
+    Students s
+JOIN 
+    Enrollments e ON s.student_id = e.student_id
+JOIN 
+    Courses c ON e.course_id = c.course_id
+JOIN 
+    Course_Assignments ca ON c.course_id = ca.course_id
+JOIN 
+    Instructors i ON ca.instructor_id = i.instructor_id
+ORDER BY 
+    s.student_id, c.course_name;
+
+
+
+
+
